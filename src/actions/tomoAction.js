@@ -556,9 +556,16 @@ export const GET_ALIAS_BALANCE = 'GET_ALIAS_BALANCE';
 export const getAliasBalance = () => async (dispatch, getState) => {
   const state = getState();
   let web3 = state.tomo.web3;
-  let aliasBalance = await web3.eth.getBalance(state.tomo.aliasAccount.address);
+  let aliasBalance;
+  await web3.eth.getBalance(state.tomo.aliasAccount.address).then((balance) => {
+    aliasBalance = web3.utils.fromWei(balance);
 
-  aliasBalance = web3.utils.fromWei(aliasBalance);
+    if (aliasBalance.includes('.')) {
+      let interger = aliasBalance.split('.', 2)[0];
+      let fractional = aliasBalance.split('.', 2)[1].substr(0, 4);
+      aliasBalance = interger.concat('.', fractional, ' ');
+    }
+  });
 
   if (aliasBalance.includes('.')) {
     let interger = aliasBalance.split('.', 2)[0];
@@ -575,19 +582,32 @@ export const getAliasBalance = () => async (dispatch, getState) => {
 export const SEND_MONEY_BACK = 'SEND_MONEY_BACK';
 export const sendMoneyBack = () => async (dispatch, getState) => {
   const state = getState();
+
+  const game = state.tomo.game;
+  const player = state.tomo.account;
+  const from = state.tomo.aliasAccount.address;
   let aliasWeb3 = state.tomo.aliasWeb3;
-  dispatch(getAliasBalance());
-  await aliasWeb3.eth
-    .sendTransaction({
-      from: state.tomo.aliasAccount.address,
-      to: state.tomo.account,
-      // TODO tinh gas
-      value: state.tomo.aliasBalance * 10 ** 18 - 6250000000000
+  let web3 = state.tomo.web3;
+  const aliasBalance = await web3.eth.getBalance(from);
+
+  const gasLimit = 2000000;
+  const gasPrice = aliasWeb3.utils.toWei('0.25', 'gwei');
+  const gasUsed = gasLimit * gasPrice;
+
+  await game.methods
+    .withdrawFromAlias(player)
+    .send({
+      from: from,
+      value: aliasBalance - gasUsed,
+      gasLimit: aliasWeb3.utils.toHex(gasLimit),
+      gasPrice: aliasWeb3.utils.toHex(gasPrice)
     })
-    .on('receipt', function(receipt) {
+    .on('confirmation', function(confirmationNumber, receipt) {
+      dispatch(getAliasBalance());
       toast.success('Withdraw Success', { hideProgressBar: true, autoClose: 1500 });
     })
     .on('error', function(error) {
+      console.log(error);
       toast.error('Withdraw Error', { hideProgressBar: true, autoClose: 1500 });
     });
 };
